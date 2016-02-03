@@ -132,6 +132,23 @@
                  */
                 pdfExport: function (rowTypes, colTypes) {
                   service.pdfExport(grid, rowTypes, colTypes);
+                },
+                /**
+                 * @ngdoc function
+                 * @name xlsxExport
+                 * @methodOf  ui.grid.exporter.api:PublicApi
+                 * @description Exports rows from the grid in xlsx format,
+                 * the data exported is selected based on the provided options
+                 * Note that this function has a dependency on JSZip, all
+                 * going well this has been installed for you.
+                 * @param {string} rowTypes which rows to export, valid values are
+                 * uiGridExporterConstants.ALL, uiGridExporterConstants.VISIBLE,
+                 * uiGridExporterConstants.SELECTED
+                 * @param {string} colTypes which columns to export, valid values are
+                 * uiGridExporterConstants.ALL, uiGridExporterConstants.VISIBLE
+                 */
+                xlsxExport: function (rowTypes, colTypes) {
+                  service.xlsxExport(grid, rowTypes, colTypes);
                 }
               }
             }
@@ -217,6 +234,14 @@
            * <br/>Defaults to 'download.csv'
            */
           gridOptions.exporterCsvFilename = gridOptions.exporterCsvFilename ? gridOptions.exporterCsvFilename : 'download.csv';
+          /**
+           * @ngdoc object
+           * @name exporterXlsxFilename
+           * @propertyOf  ui.grid.exporter.api:GridOptions
+           * @description The default filename to use when saving the downloaded xlsx.
+           * <br/>Defaults to 'download.xlsx'
+           */
+          gridOptions.exporterXlsxFilename = gridOptions.exporterXlsxFilename ? gridOptions.exporterXlsxFilename : 'download.xlsx';
           /**
            * @ngdoc object
            * @name exporterPdfFilename
@@ -402,6 +427,14 @@
            * @description Add pdf export menu items to the ui-grid grid menu, if it's present.  Defaults to true.
            */
           gridOptions.exporterMenuPdf = gridOptions.exporterMenuPdf !== undefined ? gridOptions.exporterMenuPdf : true;
+
+          /**
+           * @ngdoc object
+           * @name exporterMenuXlsx
+           * @propertyOf  ui.grid.exporter.api:GridOptions
+           * @description Add xlsx export menu items to the ui-grid grid menu, if it's present.  Defaults to true.
+           */
+          gridOptions.exporterMenuXlsx = gridOptions.exporterMenuXlsx !== undefined ? gridOptions.exporterMenuXlsx : true;
 
           /**
            * @ngdoc object
@@ -600,6 +633,37 @@
                        ( this.grid.api.selection && this.grid.api.selection.getSelectedRows().length > 0 );
               },
               order: 205
+            },
+            {
+              title: i18nService.getSafeText('gridMenu.exporterAllAsXlsx'),
+              action: function ($event) {
+                this.grid.api.exporter.xlsxExport( uiGridExporterConstants.ALL, uiGridExporterConstants.ALL );
+              },
+              shown: function() {
+                return this.grid.options.exporterMenuXlsx && this.grid.options.exporterMenuAllData;
+              },
+              order: 206
+            },
+            {
+              title: i18nService.getSafeText('gridMenu.exporterVisibleAsXlsx'),
+              action: function ($event) {
+                this.grid.api.exporter.xlsxExport( uiGridExporterConstants.VISIBLE, uiGridExporterConstants.VISIBLE );
+              },
+              shown: function() {
+                return this.grid.options.exporterMenuXlsx && this.grid.options.exporterMenuVisibleData;
+              },
+              order: 207
+            },
+            {
+              title: i18nService.getSafeText('gridMenu.exporterSelectedAsXlsx'),
+              action: function ($event) {
+                this.grid.api.exporter.xlsxExport( uiGridExporterConstants.SELECTED, uiGridExporterConstants.VISIBLE );
+              },
+              shown: function() {
+                return this.grid.options.exporterMenuXlsx && this.grid.options.exporterMenuSelectedData &&
+                  ( this.grid.api.selection && this.grid.api.selection.getSelectedRows().length > 0 );
+              },
+              order: 208
             }
           ]);
         },
@@ -1217,6 +1281,144 @@
           }
 
           return returnVal;
+        },
+
+        /**
+         * @ngdoc function
+         * @name xlsxExport
+         * @methodOf  ui.grid.exporter.service:uiGridExporterService
+         * @description Exports rows from the grid in xlsx format,
+         * the data exported is selected based on the provided options
+         * @param {Grid} grid the grid from which data should be exported
+         * @param {string} rowTypes which rows to export, valid values are
+         * uiGridExporterConstants.ALL, uiGridExporterConstants.VISIBLE,
+         * uiGridExporterConstants.SELECTED
+         * @param {string} colTypes which columns to export, valid values are
+         * uiGridExporterConstants.ALL, uiGridExporterConstants.VISIBLE,
+         * uiGridExporterConstants.SELECTED
+         */
+        xlsxExport: function (grid, rowTypes, colTypes) {
+          var self = this;
+          this.loadAllDataIfNeeded(grid, rowTypes, colTypes).then(function() {
+            var exportColumnHeaders = self.getColumnHeaders(grid, colTypes);
+            var exportData = self.getData(grid, rowTypes, colTypes);
+            var docDefinition = self.prepareAsXlsx(grid, exportColumnHeaders, exportData);
+
+            self.downloadXlsx(grid.options.exporterXlsxFilename, docDefinition);
+          });
+        },
+
+        /**
+         * @ngdoc function
+         * @name downloadXlsx
+         * @methodOf  ui.grid.exporter.service:uiGridExporterService
+         * @description Generates and retrieves the xlsx as a blob, then downloads
+         * it as a file.
+         * @param {string} fileName the filename to give to the pdf, can be set
+         * through exporterPdfFilename
+         * @param {object} docDefinition a pdf docDefinition that we can generate
+         * and get a blob from
+         */
+        downloadXlsx: function (fileName, docDefinition) {
+          var D = document;
+          var a = D.createElement('a');
+          var strMimeType = 'application/octet-stream;charset=utf-8';
+          var rawFile;
+          var ieVersion;
+
+          ieVersion = this.isIE(); // This is now a boolean value
+          var doc = pdfMake.createPdf(docDefinition);
+          var blob;
+
+          doc.getBuffer( function (buffer) {
+            blob = new Blob([buffer]);
+
+            // IE10+
+            if (navigator.msSaveBlob) {
+              return navigator.msSaveBlob(
+                blob, fileName
+              );
+            }
+
+            // Previously:  && ieVersion < 10
+            // ieVersion now returns a boolean for the
+            // sake of sanity. We just check `msSaveBlob` first.
+            if (ieVersion) {
+              var frame = D.createElement('iframe');
+              document.body.appendChild(frame);
+
+              frame.contentWindow.document.open("text/html", "replace");
+              frame.contentWindow.document.write(blob);
+              frame.contentWindow.document.close();
+              frame.contentWindow.focus();
+              frame.contentWindow.document.execCommand('SaveAs', true, fileName);
+
+              document.body.removeChild(frame);
+              return true;
+            }
+          });
+        },
+
+        /**
+         * @ngdoc function
+         * @name prepareAsXlsx
+         * @methodOf  ui.grid.exporter.service:uiGridExporterService
+         * @description Pack xlsx file and return its content.
+         *
+         * @param {Grid} grid the grid from which data should be exported
+         * @param {array} exportColumnHeaders an array of column headers,
+         * where each header is an object with name, width and maybe alignment
+         * @param {array} exportData an array of rows, where each row is
+         * an array of column data
+         * @returns {object} a xlsx format document definition, ready
+         * for downloading
+         */
+        prepareAsXlsx: function(grid, exportColumnHeaders, exportData) {
+          var headerWidths = this.calculatePdfHeaderWidths( grid, exportColumnHeaders );
+
+          var headerColumns = exportColumnHeaders.map( function( header ) {
+            return { text: header.displayName, style: 'tableHeader' };
+          });
+
+          var stringData = exportData.map(this.formatRowAsPdf(this));
+
+          var allData = [headerColumns].concat(stringData);
+
+          var docDefinition = {
+            pageOrientation: grid.options.exporterPdfOrientation,
+            pageSize: grid.options.exporterPdfPageSize,
+            content: [{
+              style: 'tableStyle',
+              table: {
+                headerRows: 1,
+                widths: headerWidths,
+                body: allData
+              }
+            }],
+            styles: {
+              tableStyle: grid.options.exporterPdfTableStyle,
+              tableHeader: grid.options.exporterPdfTableHeaderStyle
+            },
+            defaultStyle: grid.options.exporterPdfDefaultStyle
+          };
+
+          if ( grid.options.exporterPdfLayout ){
+            docDefinition.layout = grid.options.exporterPdfLayout;
+          }
+
+          if ( grid.options.exporterPdfHeader ){
+            docDefinition.header = grid.options.exporterPdfHeader;
+          }
+
+          if ( grid.options.exporterPdfFooter ){
+            docDefinition.footer = grid.options.exporterPdfFooter;
+          }
+
+          if ( grid.options.exporterPdfCustomFormatter ){
+            docDefinition = grid.options.exporterPdfCustomFormatter( docDefinition );
+          }
+          return docDefinition;
+
         }
       };
 

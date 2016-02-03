@@ -70,6 +70,9 @@
           exporterAllAsPdf: 'Export all data as pdf',
           exporterVisibleAsPdf: 'Export visible data as pdf',
           exporterSelectedAsPdf: 'Export selected data as pdf',
+          exporterAllAsXlsx: 'Export all data as xlsx',
+          exporterVisibleAsXlsx: 'Export visible data as xlsx',
+          exporterSelectedAsXlsx: 'Export selected data as xlsx',
           clearAllFilters: 'Clear all filters'
         },
         importer: {
