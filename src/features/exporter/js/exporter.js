@@ -1,4 +1,5 @@
 /* global pdfMake */
+/* global jszip */
 /* global console */
 
 (function () {
