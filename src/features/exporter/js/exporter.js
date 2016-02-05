@@ -1,5 +1,5 @@
 /* global pdfMake */
-/* global jszip */
+/* global XLSX */
 /* global console */
 
 (function () {
@@ -140,7 +140,7 @@
                  * @methodOf  ui.grid.exporter.api:PublicApi
                  * @description Exports rows from the grid in xlsx format,
                  * the data exported is selected based on the provided options
-                 * Note that this function has a dependency on JSZip, all
+                 * Note that this function has a dependency on js-xlsx, all
                  * going well this has been installed for you.
                  * @param {string} rowTypes which rows to export, valid values are
                  * uiGridExporterConstants.ALL, uiGridExporterConstants.VISIBLE,
@@ -235,14 +235,6 @@
            * <br/>Defaults to 'download.csv'
            */
           gridOptions.exporterCsvFilename = gridOptions.exporterCsvFilename ? gridOptions.exporterCsvFilename : 'download.csv';
-          /**
-           * @ngdoc object
-           * @name exporterXlsxFilename
-           * @propertyOf  ui.grid.exporter.api:GridOptions
-           * @description The default filename to use when saving the downloaded xlsx.
-           * <br/>Defaults to 'download.xlsx'
-           */
-          gridOptions.exporterXlsxFilename = gridOptions.exporterXlsxFilename ? gridOptions.exporterXlsxFilename : 'download.xlsx';
           /**
            * @ngdoc object
            * @name exporterPdfFilename
@@ -388,6 +380,38 @@
            * layout usually.
            * <br/>Defaults to null, which means no layout
            */
+
+          /**
+           * @ngdoc object
+           * @name exporterXlsxFilename
+           * @propertyOf  ui.grid.exporter.api:GridOptions
+           * @description The default filename to use when saving the downloaded xlsx.
+           * <br/>Defaults to 'download.xlsx'
+           */
+          gridOptions.exporterXlsxFilename = gridOptions.exporterXlsxFilename ? gridOptions.exporterXlsxFilename : 'download.xlsx';
+          /**
+           * @ngdoc object
+           * @name exporterXlsxHeader
+           * @propertyOf  ui.grid.exporter.api:GridOptions
+           * @description The header section for pdf exports.  Can be
+           * simple text:
+           * <pre>
+           *   gridOptions.exporterXlsxHeader = 'My Header';
+           * </pre>
+           */
+          gridOptions.exporterXlsxHeader = gridOptions.exporterXlsxHeader ? gridOptions.exporterXlsxHeader : null;
+          /**
+           * @ngdoc object
+           * @name exporterXlsxFooter
+           * @propertyOf  ui.grid.exporter.api:GridOptions
+           * @description The header section for pdf exports.  Can be
+           * simple text:
+           * <pre>
+           *   gridOptions.exporterXlsxFooter = 'My Footer';
+           * </pre>
+           */
+          gridOptions.exporterXlsxFooter = gridOptions.exporterPdfFooter ? gridOptions.exporterXlsxFooter : null;
+
 
           /**
            * @ngdoc object
@@ -1327,37 +1351,176 @@
           var rawFile;
           var ieVersion;
 
-          ieVersion = this.isIE(); // This is now a boolean value
-          var doc = pdfMake.createPdf(docDefinition);
-          var blob;
+          /* dummy workbook constructor */
+          function Workbook() {
+            if (!(this instanceof Workbook)) {
+              return new Workbook();
+            }
+            this.SheetNames = [];
+            this.Sheets = {};
+          }
 
-          doc.getBuffer( function (buffer) {
-            blob = new Blob([buffer]);
+          var wb = new Workbook();
 
-            // IE10+
-            if (navigator.msSaveBlob) {
-              return navigator.msSaveBlob(
-                blob, fileName
-              );
+          //var data = [
+          //  [1,2,3],
+          //  [true, false, null, "sheetjs"],
+          //  ["foo","bar",new Date("2014-02-19T14:30Z"), "0.3"],
+          //  ["baz", null, "qux"]
+          //];
+
+          var data = docDefinition.content[0].table.body;
+
+          var ws_name = "SheetJS";
+
+          var wscols = [
+            {wch:6},
+            {wch:7},
+            {wch:10},
+            {wch:20}
+          ];
+
+          function datenum(v, date1904) {
+            if (date1904) {
+              v += 1462;
+            }
+            var epoch = Date.parse(v);
+            return (epoch - new Date(Date.UTC(1899, 11, 30))) / (24 * 60 * 60 * 1000);
+          }
+
+          /* convert an array of arrays in JS to a CSF spreadsheet */
+          function sheet_from_array_of_arrays(data, opts) {
+            var ws = {};
+            var range = {s: {c:10000000, r:10000000}, e: {c:0, r:0 }};
+            for (var R = 0; R !== data.length; ++R) {
+              for (var C = 0; C !== data[R].length; ++C) {
+                if (range.s.r > R) {
+                  range.s.r = R;
+                }
+                if (range.s.c > C) {
+                  range.s.c = C;
+                }
+                if (range.e.r < R) {
+                  range.e.r = R;
+                }
+                if (range.e.c < C) {
+                  range.e.c = C;
+                }
+
+                var cell = {v: data[R][C]};
+
+                if (R < docDefinition.content[0].table.headerRows ) {
+                  cell.v = data[R][C].text;
+                  console.log( data[R][C]);
+                }
+
+
+                if (cell.v == null) {
+                  continue;
+                }
+                var cell_ref = XLSX.utils.encode_cell({c:C,r:R});
+
+                /* TEST: proper cell types and value handling */
+                if (typeof cell.v === 'number') {
+                  cell.t = 'n';
+                }
+                else {
+                  if (typeof cell.v === 'boolean') {
+                    cell.t = 'b';
+                  }
+                  else {
+                    if (cell.v instanceof Date) {
+                      cell.t = 'n'; cell.z = XLSX.SSF._table[14];
+                      cell.v = datenum(cell.v);
+                    }
+                    else {
+                      cell.t = 's';
+                    }
+                  }
+                }
+                ws[cell_ref] = cell;
+              }
             }
 
-            // Previously:  && ieVersion < 10
-            // ieVersion now returns a boolean for the
-            // sake of sanity. We just check `msSaveBlob` first.
-            if (ieVersion) {
-              var frame = D.createElement('iframe');
-              document.body.appendChild(frame);
-
-              frame.contentWindow.document.open("text/html", "replace");
-              frame.contentWindow.document.write(blob);
-              frame.contentWindow.document.close();
-              frame.contentWindow.focus();
-              frame.contentWindow.document.execCommand('SaveAs', true, fileName);
-
-              document.body.removeChild(frame);
-              return true;
+            /* TEST: proper range */
+            if (range.s.c < 10000000) {
+              ws['!ref'] = XLSX.utils.encode_range(range);
             }
-          });
+            return ws;
+          }
+          var ws = sheet_from_array_of_arrays(data);
+
+          /* TEST: add worksheet to workbook */
+          wb.SheetNames.push(ws_name);
+          wb.Sheets[ws_name] = ws;
+
+          /* TEST: column widths */
+          ws['!cols'] = wscols;
+
+          function s2ab(s) {
+            var buf = new ArrayBuffer(s.length);
+            var view = new Uint8Array(buf);
+            for (var i = 0; i !== s.length; ++i) {
+              view[i] = s.charCodeAt(i) & 0xFF;
+            }
+            return buf;
+          }
+
+
+          /* bookType can be 'xlsx' or 'xlsm' or 'xlsb' */
+          var wopts = { bookType:'xlsx', bookSST:false, type:'binary' };
+          var xlsxContent = XLSX.write(wb,wopts);
+
+          ieVersion = this.isIE();
+          if (ieVersion && ieVersion < 10) {
+            var frame = D.createElement('iframe');
+            document.body.appendChild(frame);
+
+            frame.contentWindow.document.open("text/html", "replace");
+            frame.contentWindow.document.write('sep=,\r\n' + xlsxContent);
+            frame.contentWindow.document.close();
+            frame.contentWindow.focus();
+            frame.contentWindow.document.execCommand('SaveAs', true, fileName);
+
+            document.body.removeChild(frame);
+            return true;
+          }
+
+          // IE10+
+          if (navigator.msSaveBlob) {
+            return navigator.msSaveOrOpenBlob(
+              new Blob(
+                ['', xlsxContent],
+                { type: strMimeType } ),
+              fileName
+            );
+          }
+
+          //html5 A[download]
+          if ('download' in a) {
+            var blob = new Blob([s2ab(xlsxContent)], {type:""});
+            rawFile = URL.createObjectURL(blob);
+            a.setAttribute('download', fileName);
+          } else {
+            rawFile = 'data:' + strMimeType + ',' + encodeURIComponent(xlsxContent);
+            a.setAttribute('target', '_blank');
+          }
+
+          a.href = rawFile;
+          a.setAttribute('style', 'display:none;');
+          D.body.appendChild(a);
+          setTimeout(function() {
+            if (a.click) {
+              a.click();
+              // Workaround for Safari 5
+            } else if (document.createEvent) {
+              var eventObj = document.createEvent('MouseEvents');
+              eventObj.initEvent('click', true, true);
+              a.dispatchEvent(eventObj);
+            }
+            D.body.removeChild(a);
+
+          }, this.delay);
         },
 
         /**
@@ -1381,13 +1544,11 @@
             return { text: header.displayName, style: 'tableHeader' };
           });
 
-          var stringData = exportData.map(this.formatRowAsPdf(this));
+          var stringData = exportData.map(this.formatRowAsXlsx(this));
 
           var allData = [headerColumns].concat(stringData);
 
           var docDefinition = {
-            pageOrientation: grid.options.exporterPdfOrientation,
-            pageSize: grid.options.exporterPdfPageSize,
             content: [{
               style: 'tableStyle',
               table: {
@@ -1403,23 +1564,64 @@
             defaultStyle: grid.options.exporterPdfDefaultStyle
           };
 
-          if ( grid.options.exporterPdfLayout ){
-            docDefinition.layout = grid.options.exporterPdfLayout;
+          if ( grid.options.exporterXlsxHeader ){
+            docDefinition.header = grid.options.exporterXlsxHeader;
           }
 
-          if ( grid.options.exporterPdfHeader ){
-            docDefinition.header = grid.options.exporterPdfHeader;
+          if ( grid.options.exporterXlsxFooter ){
+            docDefinition.footer = grid.options.exporterXlsxFooter;
           }
 
-          if ( grid.options.exporterPdfFooter ){
-            docDefinition.footer = grid.options.exporterPdfFooter;
-          }
-
-          if ( grid.options.exporterPdfCustomFormatter ){
-            docDefinition = grid.options.exporterPdfCustomFormatter( docDefinition );
-          }
           return docDefinition;
 
+        },
+        /**
+         * @ngdoc function
+         * @name formatRowAsXlsx
+         * @methodOf  ui.grid.exporter.service:uiGridExporterService
+         * @description Renders a row in a format consumable by XLSX,
+         * mainly meaning casting everything to a string
+         * @param {exporterService} exporter pass in exporter
+         * @param {array} row the row to be turned into a csv string
+         * @returns {string} a csv-ified version of the row
+         */
+        formatRowAsXlsx: function ( exporter ) {
+          return function( row ) {
+            return row.map(exporter.formatFieldAsXlsxString);
+          };
+        },
+
+
+        /**
+         * @ngdoc function
+         * @name formatFieldAsXlsxString
+         * @methodOf  ui.grid.exporter.service:uiGridExporterService
+         * @description Renders a single field as a pdf-able field, which
+         * is different from a csv field only in that strings don't have quotes
+         * around them
+         * @param {field} field the field to be turned into a pdf string,
+         * may be of any type
+         * @returns {string} a string-ified version of the field
+         */
+        formatFieldAsXlsxString: function (field) {
+          var returnVal;
+          if (field.value == null) { // we want to catch anything null-ish, hence just == not ===
+            returnVal = '';
+          } else if (typeof(field.value) === 'number') {
+            returnVal = field.value.toString();
+          } else if (typeof(field.value) === 'boolean') {
+            returnVal = (field.value ? 'TRUE' : 'FALSE') ;
+          } else if (typeof(field.value) === 'string') {
+            returnVal = field.value.replace(/"/g,'""');
+          } else {
+            returnVal = JSON.stringify(field.value).replace(/^"/,'').replace(/"$/,'');
+          }
+
+          if (field.alignment && typeof(field.alignment) === 'string' ){
+            returnVal = { text: returnVal, alignment: field.alignment };
+          }
+
+          return returnVal;
         }
       };
 

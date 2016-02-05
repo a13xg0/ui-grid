@@ -71,6 +71,9 @@
           exporterAllAsPdf: 'Экспортировать всё в PDF',
           exporterVisibleAsPdf: 'Экспортировать видимые данные в PDF',
           exporterSelectedAsPdf: 'Экспортировать выбранные данные в PDF',
+          exporterAllAsXlsx: 'Экспортировать всё в xlsx',
+          exporterVisibleAsXlsx: 'Экспортировать видимые данные в xlsx',
+          exporterSelectedAsXlsx: 'Экспортировать выбранные данные в xlsx',
           clearAllFilters: 'Очистите все фильтры'
         },
         importer: {
